@@ -8,7 +8,6 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart'
     as flutter_inappwebview;
 import 'package:mangayomi/models/settings.dart';
 import 'package:http/io_client.dart';
-import 'package:mangayomi/utils/extensions/string_extensions.dart';
 import 'package:mangayomi/utils/log/log.dart';
 import 'package:mangayomi/services/http/rhttp/rhttp.dart' as rhttp;
 
@@ -45,6 +44,7 @@ class MClient {
       bool showCloudFlareError = true}) {
     return InterceptedClient.build(
         client: httpClient(settings: settings, reqcopyWith: reqcopyWith),
+        retryPolicy: ResolveCloudFlareChallenge(showCloudFlareError),
         interceptors: [
           MCookieManager(reqcopyWith),
           LoggerInterceptor(showCloudFlareError)
@@ -66,21 +66,17 @@ class MClient {
     return {HttpHeaders.cookieHeader: cookies};
   }
 
-  static Future<void> setCookie(String url, String ua, {String? cookie}) async {
+  static Future<void> setCookie(String url, String ua,
+      flutter_inappwebview.InAppWebViewController webViewController,
+      {String? cookie}) async {
     List<String> cookies = [];
-    final cookieList = (await flutter_inappwebview.CookieManager.instance(
-            webViewEnvironment: webViewEnvironment)
-        .getCookies(url: flutter_inappwebview.WebUri(url)));
-    if (Platform.isWindows) {
-      cookies = cookieList
-          .where((e) =>
-              ((e.domain ?? "").substringAfter(".") == Uri.parse(url).host))
-          .map((e) => "${e.name}=${e.value}")
-          .toList();
-    } else {
-      cookies = cookieList.map((e) => "${e.name}=${e.value}").toList();
-    }
-
+    cookies = (await flutter_inappwebview.CookieManager.instance(
+                webViewEnvironment: webViewEnvironment)
+            .getCookies(
+                url: flutter_inappwebview.WebUri(url),
+                webViewController: webViewController))
+        .map((e) => "${e.name}=${e.value}")
+        .toList();
     if (cookies.isNotEmpty) {
       final host = Uri.parse(url).host;
       final newCookie = cookies.join("; ");
@@ -194,12 +190,69 @@ class LoggerInterceptor extends InterceptorContract {
   }
 }
 
-String _cleanText(String text) {
-  return text
-      .trim()
-      .replaceAll(
-          RegExp(
-              r'[\u0000-\u001F\u007F-\u009F\u00A0\u200B-\u200D\u2060\uFEFF]'),
-          '')
-      .replaceAll(RegExp(r'\s+'), ' ');
+class ResolveCloudFlareChallenge extends RetryPolicy {
+  bool showCloudFlareError;
+  ResolveCloudFlareChallenge(this.showCloudFlareError);
+  @override
+  int get maxRetryAttempts => 2;
+  @override
+  Future<bool> shouldAttemptRetryOnResponse(BaseResponse response) async {
+    if (!showCloudFlareError || Platform.isLinux) return false;
+    flutter_inappwebview.HeadlessInAppWebView? headlessWebView;
+    int time = 0;
+    bool timeOut = false;
+    final cloudflare = [403, 503].contains(response.statusCode) &&
+        ["cloudflare-nginx", "cloudflare"].contains(response.headers["server"]);
+    if (cloudflare) {
+      bool isCloudFlare = true;
+      headlessWebView = flutter_inappwebview.HeadlessInAppWebView(
+        webViewEnvironment: webViewEnvironment,
+        initialUrlRequest: flutter_inappwebview.URLRequest(
+            url: flutter_inappwebview.WebUri(response.request!.url.toString())),
+        onLoadStop: (controller, url) async {
+          isCloudFlare = await controller.platform.evaluateJavascript(
+              source:
+                  "document.head.innerHTML.includes('#challenge-success-text')");
+
+          await Future.doWhile(() async {
+            if (timeOut == true) {
+              return false;
+            }
+            if (isCloudFlare) {
+              isCloudFlare = await controller.platform.evaluateJavascript(
+                  source:
+                      "document.head.innerHTML.includes('#challenge-success-text')");
+              return true;
+            }
+            return false;
+          });
+          if (!timeOut) {
+            final ua = await controller.evaluateJavascript(
+                    source: "navigator.userAgent") ??
+                "";
+            await MClient.setCookie(url.toString(), ua, controller);
+          }
+        },
+      );
+
+      headlessWebView.run();
+
+      await Future.doWhile(() async {
+        timeOut = time == 15;
+        if (!isCloudFlare || timeOut) {
+          return false;
+        }
+        await Future.delayed(const Duration(seconds: 1));
+        time++;
+        return true;
+      });
+      try {
+        headlessWebView.dispose();
+      } catch (_) {}
+
+      return true;
+    }
+
+    return false;
+  }
 }
