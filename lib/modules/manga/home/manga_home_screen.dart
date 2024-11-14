@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,7 +24,6 @@ import 'package:mangayomi/modules/manga/home/widget/mangas_card_selector.dart';
 import 'package:mangayomi/modules/widgets/gridview_widget.dart';
 import 'package:mangayomi/modules/widgets/manga_image_card_widget.dart';
 import 'package:mangayomi/utils/global_style.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class MangaHomeScreen extends ConsumerStatefulWidget {
   final Source source;
@@ -267,22 +265,7 @@ class _MangaHomeScreenState extends ConsumerState<MangaHomeScreen> {
                       'sourceId': source.id.toString(),
                       'title': ''
                     };
-                    if (Platform.isLinux) {
-                      final url = Uri.parse(baseUrl);
-                      if (!await launchUrl(
-                        url,
-                        mode: LaunchMode.inAppBrowserView,
-                      )) {
-                        if (!await launchUrl(
-                          url,
-                          mode: LaunchMode.externalApplication,
-                        )) {
-                          throw 'Could not launch $url';
-                        }
-                      }
-                    } else {
-                      context.push("/mangawebview", extra: data);
-                    }
+                    context.push("/mangawebview", extra: data);
                   } else {
                     final res =
                         await context.push('/extension_detail', extra: source);
@@ -317,7 +300,6 @@ class _MangaHomeScreenState extends ConsumerState<MangaHomeScreen> {
                         selected: _selectedIndex == index,
                         text: _types(context)[index].title,
                         onPressed: () async {
-                          _mangaList.clear();
                           if (filters.isEmpty) {
                             filters = filterList;
                           }
@@ -375,6 +357,7 @@ class _MangaHomeScreenState extends ConsumerState<MangaHomeScreen> {
                               }),
                             );
                             if (result == 'filter') {
+                              _mangaList.clear();
                               if (mounted) {
                                 setState(() {
                                   _selectedIndex = 2;
@@ -391,6 +374,7 @@ class _MangaHomeScreenState extends ConsumerState<MangaHomeScreen> {
                                   filterList: filters));
                             }
                           } else {
+                            _mangaList.clear();
                             setState(() {
                               _selectedIndex = index;
                               _isFiltering = false;
@@ -623,22 +607,7 @@ class _MangaHomeScreenState extends ConsumerState<MangaHomeScreen> {
                                     "hasCloudFlare":
                                         source.hasCloudflare ?? false
                                   };
-                                  if (Platform.isLinux) {
-                                    final url = Uri.parse(baseUrl);
-                                    if (!await launchUrl(
-                                      url,
-                                      mode: LaunchMode.inAppBrowserView,
-                                    )) {
-                                      if (!await launchUrl(
-                                        url,
-                                        mode: LaunchMode.externalApplication,
-                                      )) {
-                                        throw 'Could not launch $url';
-                                      }
-                                    }
-                                  } else {
-                                    context.push("/mangawebview", extra: data);
-                                  }
+                                  context.push("/mangawebview", extra: data);
                                 },
                                 icon: Icon(
                                   Icons.public,
