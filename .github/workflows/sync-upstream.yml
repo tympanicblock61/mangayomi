@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
         contents: write
-        actions: read-write
+        actions: write
+        workflow: write
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v3
